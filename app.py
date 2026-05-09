@@ -145,7 +145,7 @@ NODE_POS = {
 }
 
 
-def build_plotly_figure(path_ucs, path_astar, heuristic=None):
+def build_plotly_figure(path_ucs, path_astar, heuristic=None, start='Camp David', goal='Puncak'):
     G = nx.Graph()
     for node, neighbors in graph_papandayan.items():
         for nb, w in neighbors.items():
@@ -223,12 +223,12 @@ def build_plotly_figure(path_ucs, path_astar, heuristic=None):
             f"Tetangga: {', '.join(graph_papandayan.get(node, {}).keys())}"
         )
 
-        if node == 'Puncak':
+        if node == goal:
             node_color.append('#00E676')
-            node_size.append(22)
-        elif node == 'Camp David':
+            node_size.append(24)
+        elif node == start:
             node_color.append('#40C4FF')
-            node_size.append(22)
+            node_size.append(24)
         elif path_ucs and node in path_ucs and path_astar and node in path_astar:
             node_color.append('#FF4B4B')
             node_size.append(18)
@@ -455,10 +455,10 @@ with st.sidebar:
             )
 
     st.markdown("---")
-    st.markdown("""
+    st.markdown(f"""
     <div style='font-size:0.75rem; color:#546e7a;'>
     <b>Legenda Warna Graf:</b><br>
-    🔵 Titik Awal &nbsp; 🟢 Puncak<br>
+    🔵 {start_node} &nbsp; 🟢 {goal_node}<br>
     🔴 Jalur UCS &nbsp; 🟡 Jalur A*<br>
     ⚫ Node biasa
     </div>
@@ -475,7 +475,7 @@ if not run_btn:
     st.markdown('<div class="section-header">📡 Peta Jaringan Jalur</div>', unsafe_allow_html=True)
     with st.container():
         st.markdown('<div class="vis-container">', unsafe_allow_html=True)
-        fig_default = build_plotly_figure([], [], compute_heuristic(graph_papandayan, 'Puncak'))
+        fig_default = build_plotly_figure([], [], compute_heuristic(graph_papandayan, goal_node), start=start_node, goal=goal_node)
         st.plotly_chart(fig_default, use_container_width=True, config={"displayModeBar": False})
         st.markdown('</div>', unsafe_allow_html=True)
     st.info("👈 Pilih titik awal & tujuan di sidebar, lalu tekan **Cari Rute Terpendek** untuk memulai analisis.")
@@ -515,17 +515,22 @@ else:
         st.markdown('<span class="algo-badge astar-badge">🟡 A* — A-Star Search</span>', unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
 
-        delta_t = res_astar['time_ms'] - res_ucs['time_ms']
-        delta_n = res_astar['expanded'] - res_ucs['expanded']
+        # delta negatif = A* lebih hemat (lebih baik); delta_inverse membalik tanda
+        # agar Streamlit menampilkan HIJAU saat A* lebih baik (lebih kecil)
+        delta_cost = res_astar['cost'] - res_ucs['cost']
+        delta_t    = res_astar['time_ms']    - res_ucs['time_ms']
+        delta_m    = res_astar['memory_kb']  - res_ucs['memory_kb']
+        delta_n    = res_astar['expanded']   - res_ucs['expanded']
 
         c1.metric("📏 Jarak",  f"{res_astar['cost']:,} m",
-                  delta=f"{res_astar['cost'] - res_ucs['cost']:+,} m" if res_ucs['cost'] != float('inf') else None)
+                  delta=f"{delta_cost:+,} m" if res_ucs['cost'] != float('inf') else None,
+                  delta_color="inverse")
         c2.metric("⏱️ Waktu",  f"{res_astar['time_ms']:.3f} ms",
-                  delta=f"{delta_t:+.3f} ms")
+                  delta=f"{delta_t:+.3f} ms", delta_color="inverse")
         c3.metric("💾 Memori", f"{res_astar['memory_kb']:.2f} KB",
-                  delta=f"{res_astar['memory_kb'] - res_ucs['memory_kb']:+.2f} KB")
+                  delta=f"{delta_m:+.2f} KB", delta_color="inverse")
         c4.metric("🔁 Nodes",  f"{res_astar['expanded']}",
-                  delta=f"{delta_n:+d}")
+                  delta=f"{delta_n:+d}", delta_color="inverse")
 
         astar_route = " → ".join(res_astar["path"]) if res_astar["path"] else "Rute tidak ditemukan"
         st.markdown(f'<div class="route-box"><b class="route-highlight">Rute:</b> {astar_route}</div>', unsafe_allow_html=True)
@@ -538,7 +543,7 @@ else:
 
     with st.container():
         st.markdown('<div class="vis-container">', unsafe_allow_html=True)
-        fig = build_plotly_figure(res_ucs["path"], res_astar["path"], dyn_heuristic)
+        fig = build_plotly_figure(res_ucs["path"], res_astar["path"], dyn_heuristic, start=start_node, goal=goal_node)
         st.plotly_chart(fig, use_container_width=True, config={
             "displayModeBar": True,
             "modeBarButtonsToRemove": ["select2d", "lasso2d"],
@@ -548,37 +553,80 @@ else:
 
     # ---- Section: Insight ----
     st.markdown('<div class="section-header">💡 Analisis & Insight</div>', unsafe_allow_html=True)
-    i1, i2, i3 = st.columns(3)
 
-    same_path = res_ucs["path"] == res_astar["path"]
+    same_path   = res_ucs["path"] == res_astar["path"]
+    faster      = "A*" if res_astar['time_ms']   < res_ucs['time_ms']   else "UCS"
+    efficient   = "A*" if res_astar['expanded']  <= res_ucs['expanded'] else "UCS"
+    mem_winner  = "A*" if res_astar['memory_kb'] <= res_ucs['memory_kb'] else "UCS"
+    fc = "#F7B731"; uc = "#FF4B4B"
+
+    i1, i2, i3, i4 = st.columns(4)
+    card = "background:rgba(255,255,255,0.04);border:1px solid rgba(100,150,255,0.2);border-radius:12px;padding:16px;font-size:0.84rem;height:100%;"
+
     with i1:
-        st.markdown(f"""
-        <div style='background:rgba(255,255,255,0.04);border:1px solid rgba(100,150,255,0.2);
-        border-radius:10px;padding:14px;font-size:0.85rem;'>
-        <b style='color:#64b5f6;'>🛤️ Konsistensi Rute</b><br><br>
-        {"✅ Kedua algoritma <b>menemukan rute yang sama</b>." if same_path
-         else "⚠️ Kedua algoritma <b>menemukan rute berbeda</b>."}
-        </div>""", unsafe_allow_html=True)
+        icon = "✅" if same_path else "⚠️"
+        txt  = "Rute <b>sama</b>" if same_path else "Rute <b>berbeda</b>"
+        st.markdown(f"<div style='{card}'><b style='color:#64b5f6;'>🛤️ Konsistensi Rute</b><br><br>{icon} Kedua algoritma {txt}.</div>", unsafe_allow_html=True)
 
     with i2:
-        faster = "A*" if res_astar['time_ms'] < res_ucs['time_ms'] else "UCS"
-        faster_color = "#F7B731" if faster == "A*" else "#FF4B4B"
-        st.markdown(f"""
-        <div style='background:rgba(255,255,255,0.04);border:1px solid rgba(100,150,255,0.2);
-        border-radius:10px;padding:14px;font-size:0.85rem;'>
-        <b style='color:#64b5f6;'>⚡ Kecepatan</b><br><br>
-        Algoritma <b style='color:{faster_color};'>{faster}</b> lebih cepat
-        dengan selisih <b>{abs(delta_t):.3f} ms</b>.
-        </div>""", unsafe_allow_html=True)
+        col = fc if faster == "A*" else uc
+        st.markdown(f"<div style='{card}'><b style='color:#64b5f6;'>⚡ Kecepatan</b><br><br>"
+                    f"<b style='color:{col};'>{faster}</b> lebih cepat<br>"
+                    f"selisih <b>{abs(delta_t):.3f} ms</b>.</div>", unsafe_allow_html=True)
 
     with i3:
-        efficient = "A*" if res_astar['expanded'] <= res_ucs['expanded'] else "UCS"
-        eff_color = "#F7B731" if efficient == "A*" else "#FF4B4B"
-        st.markdown(f"""
-        <div style='background:rgba(255,255,255,0.04);border:1px solid rgba(100,150,255,0.2);
-        border-radius:10px;padding:14px;font-size:0.85rem;'>
-        <b style='color:#64b5f6;'>🔁 Efisiensi Ekspansi</b><br><br>
-        <b style='color:{eff_color};'>{efficient}</b> mengekspansi lebih sedikit node
-        (<b>{min(res_ucs['expanded'], res_astar['expanded'])}</b> vs
-        <b>{max(res_ucs['expanded'], res_astar['expanded'])}</b>).
-        </div>""", unsafe_allow_html=True)
+        col = fc if efficient == "A*" else uc
+        st.markdown(f"<div style='{card}'><b style='color:#64b5f6;'>🔁 Ekspansi Node</b><br><br>"
+                    f"<b style='color:{col};'>{efficient}</b> lebih efisien<br>"
+                    f"(<b>{min(res_ucs['expanded'],res_astar['expanded'])}</b> vs "
+                    f"<b>{max(res_ucs['expanded'],res_astar['expanded'])}</b> node).</div>", unsafe_allow_html=True)
+
+    with i4:
+        col = fc if mem_winner == "A*" else uc
+        st.markdown(f"<div style='{card}'><b style='color:#64b5f6;'>💾 Penggunaan Memori</b><br><br>"
+                    f"<b style='color:{col};'>{mem_winner}</b> lebih hemat memori<br>"
+                    f"(<b>{min(res_ucs['memory_kb'],res_astar['memory_kb']):.2f}</b> vs "
+                    f"<b>{max(res_ucs['memory_kb'],res_astar['memory_kb']):.2f}</b> KB).</div>", unsafe_allow_html=True)
+
+    # ---- Tabel Ringkasan ----
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📋 Tabel Ringkasan Perbandingan</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <table style='width:100%;border-collapse:collapse;font-size:0.88rem;color:#cdd9f5;'>
+      <thead>
+        <tr style='border-bottom:1px solid rgba(100,150,255,0.3);'>
+          <th style='text-align:left;padding:10px 14px;color:#64b5f6;'>Metrik</th>
+          <th style='text-align:center;padding:10px 14px;color:#FF4B4B;'>🔴 UCS</th>
+          <th style='text-align:center;padding:10px 14px;color:#F7B731;'>🟡 A*</th>
+          <th style='text-align:center;padding:10px 14px;color:#90a4ae;'>Selisih</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style='border-bottom:1px solid rgba(100,150,255,0.1);background:rgba(255,255,255,0.02);'>
+          <td style='padding:9px 14px;'>📏 Jarak (m)</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_ucs['cost']:,}</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_astar['cost']:,}</td>
+          <td style='text-align:center;padding:9px 14px;color:{"#00E676" if delta_cost==0 else ("#FF4B4B" if delta_cost>0 else "#00E676")};'>{delta_cost:+,}</td>
+        </tr>
+        <tr style='border-bottom:1px solid rgba(100,150,255,0.1);'>
+          <td style='padding:9px 14px;'>⏱️ Waktu (ms)</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_ucs['time_ms']:.4f}</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_astar['time_ms']:.4f}</td>
+          <td style='text-align:center;padding:9px 14px;color:{"#00E676" if delta_t<0 else "#FF4B4B"};'>{delta_t:+.4f}</td>
+        </tr>
+        <tr style='border-bottom:1px solid rgba(100,150,255,0.1);background:rgba(255,255,255,0.02);'>
+          <td style='padding:9px 14px;'>💾 Memori (KB)</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_ucs['memory_kb']:.2f}</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_astar['memory_kb']:.2f}</td>
+          <td style='text-align:center;padding:9px 14px;color:{"#00E676" if delta_m<0 else "#FF4B4B"};'>{delta_m:+.2f}</td>
+        </tr>
+        <tr>
+          <td style='padding:9px 14px;'>🔁 Node Diekspansi</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_ucs['expanded']}</td>
+          <td style='text-align:center;padding:9px 14px;'>{res_astar['expanded']}</td>
+          <td style='text-align:center;padding:9px 14px;color:{"#00E676" if delta_n<0 else ("#90a4ae" if delta_n==0 else "#FF4B4B")};'>{delta_n:+d}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style='font-size:0.72rem;color:#546e7a;margin-top:6px;'>* Selisih dihitung dari A* − UCS. Hijau = A* lebih baik, Merah = UCS lebih baik.</p>
+    """, unsafe_allow_html=True)
